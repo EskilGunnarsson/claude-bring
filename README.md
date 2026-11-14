@@ -72,6 +72,29 @@ bring complete Eggs --dry-run
 bring --json show
 ```
 
+## Phone and claude.ai (remote connector)
+
+The connector above runs on your Mac, so the Claude phone app and claude.ai in a browser can't reach it. For those, deploy the TypeScript version in [`remote/`](remote/supabase/functions/bring-mcp) as a free [Supabase](https://supabase.com) Edge Function, then add it to claude.ai as a custom connector. Connectors added on claude.ai also show up in the phone app.
+
+1. Create a Supabase project (the free plan is enough) and note its project ref, the `abcd…` part of `https://abcd….supabase.co`.
+2. Deploy the function:
+   ```bash
+   cd remote
+   supabase login
+   supabase functions deploy bring-mcp --project-ref <project-ref>
+   ```
+3. In the Supabase dashboard, go to **Edge Functions → Secrets** and add:
+   - `BRING_EMAIL` and `BRING_PASSWORD`: your Bring! login
+   - `CONNECTOR_TOKEN`: a long random string. Make one with `openssl rand -hex 32`.
+4. On claude.ai, go to **Settings → Connectors → Add custom connector**. Leave the advanced OAuth settings empty and use this URL:
+   ```
+   https://<project-ref>.supabase.co/functions/v1/bring-mcp/<CONNECTOR_TOKEN>
+   ```
+
+**Anyone who has the full URL can read and change your lists**, so treat it like a password. To revoke access, change `CONNECTOR_TOKEN` and update the connector URL.
+
+Free Supabase projects can be paused after a period of inactivity. If the connector stops responding, check the project in the Supabase dashboard and restore it.
+
 ## Troubleshooting
 
 - **`CERTIFICATE_VERIFY_FAILED`:** shouldn't happen, since the code uses the `certifi` certificate bundle. If it does, run `install.sh` again to update dependencies.
@@ -86,6 +109,7 @@ scripts/bring_core.py shared logic (login, lists, add/complete/remove)
 scripts/bring_cli.py  command-line interface used by the skill
 scripts/bring_mcp.py  MCP server used by Claude Desktop
 install.sh            setup script
+remote/               Supabase Edge Function for phone and claude.ai (TypeScript)
 ```
 
 ## License
