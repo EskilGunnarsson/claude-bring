@@ -93,7 +93,14 @@ The connector above runs on your Mac, so the Claude phone app and claude.ai in a
 
 **Anyone who has the full URL can read and change your lists**, so treat it like a password. To revoke access, change `CONNECTOR_TOKEN` and update the connector URL.
 
-Free Supabase projects can be paused after a period of inactivity. If the connector stops responding, check the project in the Supabase dashboard and restore it.
+Free Supabase projects are paused after 7 days of inactivity, and then the connector stops working. To prevent that, this repo has a GitHub Actions workflow ([`supabase-keepalive.yml`](.github/workflows/supabase-keepalive.yml)) that pings the project every 3 days. To turn it on, add two repository secrets under **Settings → Secrets and variables → Actions**:
+
+- `SUPABASE_URL`: `https://<project-ref>.supabase.co`
+- `SUPABASE_ANON_KEY`: the project's anon (publishable) key, from **Project Settings → API Keys**
+
+If the project gets paused anyway, a workflow run fails and GitHub emails you. Restore the project in the Supabase dashboard. GitHub turns off scheduled workflows in repos with no commits for 60 days. If that happens, re-enable the workflow in the Actions tab.
+
+If the connector disappears from claude.ai, add it again with the same URL. Supabase doesn't show secret values after you save them, so if you no longer have `CONNECTOR_TOKEN`, set a new one and use that in the URL.
 
 ## Troubleshooting
 
