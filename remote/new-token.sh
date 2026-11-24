@@ -23,6 +23,7 @@ body='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"bring_get_
 for attempt in 1 2 3 4 5 6; do
   reply=$(curl -s --max-time 30 -X POST "$url" -H 'Content-Type: application/json' -d "$body" || true)
   case "$reply" in
+    *'"isError":true'*) echo "Token works, but Bring said: $reply" >&2; break ;;
     *'"result"'*) echo "Connector works. Reply: $reply"; break ;;
     *'Not found'*|*'CONNECTOR_TOKEN secret'*) sleep 5 ;;   # old secret still cached
     *) echo "Unexpected reply: $reply" >&2; break ;;
