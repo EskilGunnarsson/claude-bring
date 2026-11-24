@@ -1,5 +1,6 @@
 // Supabase Edge Function entry point for the remote Bring! MCP connector.
 // Secrets: BRING_EMAIL, BRING_PASSWORD, CONNECTOR_TOKEN (and optionally BRING_LIST).
+// Sharing with friends: ENCRYPTION_KEY and SIGNUP_CODE (see the README).
 // Deploy with JWT verification off; the secret token in the URL does the access control.
 
 import { createHandler } from "./mcp.ts";

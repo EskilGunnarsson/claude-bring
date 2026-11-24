@@ -102,6 +102,41 @@ If the project gets paused anyway, a workflow run fails and GitHub emails you. R
 
 If the connector disappears from claude.ai, add it again with the same URL. Supabase doesn't show secret values after you save them, so if you no longer have `CONNECTOR_TOKEN`, set a new one and use that in the URL.
 
+## Sharing with friends (their own Bring account)
+
+Friends can use your connector with **their own** Bring lists. They open a sign-up page,
+enter their Bring login once, and get a personal connector URL. Everything runs in your
+Supabase project. They don't need a Supabase account.
+
+How it works:
+
+- Their Bring password is used once to sign in to Bring and is never stored. The function
+  keeps only Bring's refresh token, encrypted with the `ENCRYPTION_KEY` secret, in the
+  `bring_users` table.
+- Their connector URL is stored only as a hash. Each URL can reach only that person's lists.
+- Your own `CONNECTOR_TOKEN` URL keeps working with your account as before.
+- Signing up again gives a new URL and turns off the old one. The page also has a
+  **Stop using it** button that deletes their sign-in.
+
+Setup (once):
+
+1. Turn on GitHub Pages for this repo: **Settings → Pages → Deploy from a branch → `main` / `docs`**.
+2. Run the script. It sets the `ENCRYPTION_KEY` and `SIGNUP_CODE` secrets and deploys the function:
+   ```bash
+   remote/enable-sharing.sh <project-ref>
+   ```
+3. Run the SQL it points to (`remote/supabase/migrations/…_bring_users.sql`) in the Supabase SQL editor.
+4. Send friends the sign-up link it prints:
+   `https://<you>.github.io/claude-bring/signup.html#ref=<project-ref>&code=<invite code>`
+
+Only people with the invite code can sign up. To close sign-ups, run the script again. It
+makes a new code, and the old link stops working. Existing friends keep access.
+
+You're holding your friends' Bring access in your project: anyone who gets into your
+Supabase account could reach their lists. Share it only with people who trust you with that,
+and keep two-factor authentication on for Supabase. Never change `ENCRYPTION_KEY`: that locks
+out everyone who signed up.
+
 ## Troubleshooting
 
 - **`CERTIFICATE_VERIFY_FAILED`:** shouldn't happen, since the code uses the `certifi` certificate bundle. If it does, run `install.sh` again to update dependencies.
@@ -117,6 +152,7 @@ scripts/bring_cli.py  command-line interface used by the skill
 scripts/bring_mcp.py  MCP server used by Claude Desktop
 install.sh            setup script
 remote/               Supabase Edge Function for phone and claude.ai (TypeScript)
+docs/signup.html      sign-up page for friends (GitHub Pages)
 ```
 
 ## License

@@ -36,40 +36,98 @@ interface Session {
   expiresAt: number;
 }
 
-// Kept across requests while the edge function instance stays warm.
-let session: Session | null = null;
+// Translations are shared by every account; sessions are per Bring instance.
 const translations = new Map<string, Record<string, string>>();
 const reverseTranslations = new Map<string, Map<string, string>>();
 
 export type GetEnv = (key: string) => string | undefined;
 
-async function login(getEnv: GetEnv): Promise<Session> {
-  const email = getEnv("BRING_EMAIL");
-  const password = getEnv("BRING_PASSWORD");
-  if (!email || !password) {
-    throw new BringError("The BRING_EMAIL and BRING_PASSWORD secrets are not set.");
-  }
+/** What a Bring sign-in or token refresh gives back. */
+export interface BringAuth {
+  accessToken: string;
+  tokenType: string;
+  refreshToken?: string;
+  expiresIn: number;
+  uuid: string;
+  publicUuid: string;
+}
+
+/** Gets a fresh access token. Called on first use and whenever the token expires. */
+export type Authenticate = () => Promise<BringAuth>;
+
+/** Sign in with a Bring email and password. */
+export async function passwordLogin(email: string, password: string): Promise<BringAuth> {
   const r = await fetch(API + "v2/bringauth", {
     method: "POST",
+    headers: BASE_HEADERS,
     body: new URLSearchParams({ email, password }),
   });
-  if (r.status === 400 || r.status === 401) {
-    throw new BringError("Bring login failed. Check the BRING_EMAIL and BRING_PASSWORD secrets.");
-  }
+  if (r.status === 400 || r.status === 401) throw new BringError("Wrong Bring email or password.");
   if (!r.ok) throw new BringError(`Bring login failed (HTTP ${r.status}).`);
-  const auth = await r.json();
+  const a = await r.json();
+  return {
+    accessToken: a.access_token,
+    tokenType: a.token_type ?? "Bearer",
+    refreshToken: a.refresh_token,
+    expiresIn: a.expires_in ?? 3600,
+    uuid: a.uuid,
+    publicUuid: a.publicUuid,
+  };
+}
 
+/** Get a new access token from a refresh token saved at sign-up. */
+export async function refreshLogin(
+  refreshToken: string,
+  uuid: string,
+  publicUuid: string,
+): Promise<BringAuth> {
+  const r = await fetch(API + "v2/bringauth/token", {
+    method: "POST",
+    headers: BASE_HEADERS,
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
+  });
+  if (r.status === 400 || r.status === 401) throw new BringError("SIGNIN_EXPIRED");
+  if (!r.ok) throw new BringError(`Bring sign-in failed (HTTP ${r.status}).`);
+  const a = await r.json();
+  return {
+    accessToken: a.access_token,
+    tokenType: a.token_type ?? "Bearer",
+    refreshToken: a.refresh_token,
+    expiresIn: a.expires_in ?? 3600,
+    uuid,
+    publicUuid,
+  };
+}
+
+/** Sign in with the BRING_EMAIL / BRING_PASSWORD secrets (the owner's account). */
+export function envLogin(getEnv: GetEnv): Authenticate {
+  return async () => {
+    const email = getEnv("BRING_EMAIL");
+    const password = getEnv("BRING_PASSWORD");
+    if (!email || !password) {
+      throw new BringError("The BRING_EMAIL and BRING_PASSWORD secrets are not set.");
+    }
+    return await passwordLogin(email, password).catch((err) => {
+      if (err instanceof BringError && err.message === "Wrong Bring email or password.") {
+        throw new BringError("Bring login failed. Check the BRING_EMAIL and BRING_PASSWORD secrets.");
+      }
+      throw err;
+    });
+  };
+}
+
+async function openSession(auth: BringAuth): Promise<Session> {
   const s: Session = {
     headers: {
       ...BASE_HEADERS,
-      Authorization: `${auth.token_type} ${auth.access_token}`,
+      Authorization: `${auth.tokenType} ${auth.accessToken}`,
       "X-BRING-USER-UUID": auth.uuid,
       "X-BRING-PUBLIC-USER-UUID": auth.publicUuid,
     },
     uuid: auth.uuid,
     userLocale: DEFAULT_LOCALE,
     listLocales: {},
-    expiresAt: Date.now() + Math.max(60, (auth.expires_in ?? 3600) - 60) * 1000,
+    expiresAt: Date.now() + Math.max(60, auth.expiresIn - 60) * 1000,
   };
 
   const account = await rawRequest(s, "GET", `v2/bringusers/${s.uuid}`);
@@ -104,11 +162,19 @@ async function rawRequest(s: Session, method: string, path: string, body?: unkno
 }
 
 export class Bring {
-  constructor(private getEnv: GetEnv) {}
+  private current: Session | null = null;
+
+  /** `defaultList` is used when no list is named (the owner's BRING_LIST secret). */
+  constructor(private authenticate: Authenticate, private defaultList?: string) {}
+
+  private async login(): Promise<Session> {
+    this.current = await openSession(await this.authenticate());
+    return this.current;
+  }
 
   private async session(): Promise<Session> {
-    if (!session || Date.now() > session.expiresAt) session = await login(this.getEnv);
-    return session;
+    if (!this.current || Date.now() > this.current.expiresAt) return await this.login();
+    return this.current;
   }
 
   // deno-lint-ignore no-explicit-any
@@ -117,8 +183,8 @@ export class Bring {
       return await rawRequest(await this.session(), method, path, body);
     } catch (err) {
       if (!(err instanceof BringError) || err.message !== "UNAUTHORIZED") throw err;
-      session = await login(this.getEnv); // token revoked or expired early: log in once more
-      return await rawRequest(session, method, path, body);
+      // Token revoked or expired early: sign in once more.
+      return await rawRequest(await this.login(), method, path, body);
     }
   }
 
@@ -155,12 +221,12 @@ export class Bring {
     }));
   }
 
-  /** Pick a list by name/UUID, else BRING_LIST, else the account's default list. */
+  /** Pick a list by name/UUID, else `defaultList`, else the account's default list. */
   private async resolveList(wanted?: string | null): Promise<{ uuid: string; name: string; locale: string }> {
     const lists = await this.getLists();
     if (!lists.length) throw new BringError("This Bring account has no lists.");
     const s = await this.session();
-    const target = wanted || this.getEnv("BRING_LIST");
+    const target = wanted || this.defaultList;
     let match = target
       ? lists.find((l) => [l.name.toLowerCase(), l.uuid.toLowerCase()].includes(target.trim().toLowerCase()))
       : lists.find((l) => l.uuid === s.defaultListUuid) ?? lists[0];
