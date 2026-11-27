@@ -41,6 +41,13 @@ r = await fetch(authUrl, { method: "POST", body: new URLSearchParams({ email: "x
 ok(r.status === 401 && (await r.text()).includes("not the Bring login"), "wrong login rejected");
 
 r = await fetch(authUrl, { method: "POST", body: new URLSearchParams({ email, password }), redirect: "manual" });
+if (r.status !== 302) {
+  const msg = ((await r.text()).match(/class="error"[^>]*>([^<]*)</) || [])[1] || "(no message)";
+  console.log(`Sign-in failed with HTTP ${r.status}: ${msg}`);
+  if (r.status === 401) console.log("The email or password doesn't match the BRING_EMAIL / BRING_PASSWORD secrets. Set them again with `npx wrangler secret put BRING_EMAIL` and `npx wrangler secret put BRING_PASSWORD` in remote/cloudflare.");
+  if (!password) console.log("No password given: set PW first (see the top of this file).");
+  process.exit(1);
+}
 const loc = new URL(r.headers.get("location") || "http://x/");
 ok(r.status === 302 && loc.href.startsWith(redirect) && loc.searchParams.get("state") === "st8" && loc.searchParams.get("code"), "right login redirects back with a code");
 
