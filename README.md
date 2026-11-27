@@ -2,10 +2,11 @@
 
 Let Claude manage your [Bring!](https://www.getbring.com) shopping lists: see what's on a list, add items with quantities or notes, mark items as bought, and remove them.
 
-It works in two places:
+It works in three places:
 
 - **Claude desktop app (regular chat):** as a local MCP connector called `bring`.
 - **Claude Code:** as a skill, so you can say "add oat milk to the Bring list" in a coding session.
+- **Claude on your phone and claude.ai, any time:** as a remote connector on Cloudflare Workers, with OAuth sign-in. It keeps working when your computer is off.
 
 Built on [`bring-api`](https://github.com/miaucl/bring-api), the unofficial Python library also used by Home Assistant's Bring integration. Bring has no official public API, so this can break if Bring changes theirs.
 
@@ -72,7 +73,59 @@ bring complete Eggs --dry-run
 bring --json show
 ```
 
-## Phone and claude.ai (remote connector)
+## Phone and claude.ai, always on (Cloudflare Workers)
+
+The local connector runs on your Mac. When the Mac is off, the Claude phone app and claude.ai
+can't reach it. The Worker in [`remote/cloudflare`](remote/cloudflare) runs the same five tools on
+Cloudflare's free plan, so it's always reachable. The local connector stays as a fallback; you
+can keep both.
+
+- **Your Bring login lives in Worker secrets** (`BRING_EMAIL`, `BRING_PASSWORD`, optionally `BRING_LIST`).
+- **The endpoint is behind OAuth.** When you connect it in claude.ai, a sign-in page opens. It
+  only accepts the Bring login stored in those secrets, and it locks out an IP address after
+  10 wrong tries in an hour. claude.ai then gets a token and refreshes it for a year.
+
+### Deploy
+
+Requires Node.js 18 or newer.
+
+```bash
+cd ~/.claude/skills/bring
+git pull
+remote/cloudflare/setup.sh
+```
+
+The script:
+
+1. installs dependencies,
+2. signs you in to Cloudflare in the browser,
+3. creates a KV namespace for OAuth data and adds it to `wrangler.jsonc`,
+4. deploys,
+5. asks for your Bring email and password, and stores them as Worker secrets.
+
+Your connector URL is the `https://bring-mcp.<your-subdomain>.workers.dev` address the deploy prints, with `/mcp` added: `https://bring-mcp.<your-subdomain>.workers.dev/mcp`.
+
+To check it before using it from Claude, run the test script. It does the whole OAuth flow, then
+adds a test item to the list and removes it:
+
+```bash
+read -s "PW?Bring password: "; export PW
+LIVE="The Atelier" node remote/cloudflare/test-flow.mjs https://bring-mcp.<your-subdomain>.workers.dev you@example.com
+```
+
+### Add it to claude.ai
+
+1. On claude.ai, open **Settings → Connectors**. If an old **Bring** connector is listed, remove it.
+2. Choose **Add custom connector**. Name it `Bring` and use the `…workers.dev/mcp` URL. Leave the
+   OAuth client ID and secret empty: claude.ai registers itself.
+3. Click **Connect**. On the sign-in page, enter your Bring email and password.
+4. On your phone, close and reopen the Claude app. In a chat, tap **+** and turn on **Bring**.
+
+To cut off access, remove the connector on claude.ai. To lock out every connected client, delete
+the `OAUTH_KV` namespace's keys in the Cloudflare dashboard, or change your Bring password and
+run `npx wrangler secret put BRING_PASSWORD` in `remote/cloudflare`.
+
+## Phone and claude.ai via Supabase (alternative)
 
 The connector above runs on your Mac, so the Claude phone app and claude.ai in a browser can't reach it. For those, deploy the TypeScript version in [`remote/`](remote/supabase/functions/bring-mcp) as a free [Supabase](https://supabase.com) Edge Function, then add it to claude.ai as a custom connector. Connectors added on claude.ai also show up in the phone app.
 
@@ -151,7 +204,8 @@ scripts/bring_core.py shared logic (login, lists, add/complete/remove)
 scripts/bring_cli.py  command-line interface used by the skill
 scripts/bring_mcp.py  MCP server used by Claude Desktop
 install.sh            setup script
-remote/               Supabase Edge Function for phone and claude.ai (TypeScript)
+remote/cloudflare/    Cloudflare Worker with OAuth for phone and claude.ai (always on)
+remote/supabase/      Supabase Edge Function alternative; bring.ts and protocol.ts are shared
 docs/signup.html      sign-up page for friends (GitHub Pages)
 ```
 
