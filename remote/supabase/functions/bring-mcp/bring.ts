@@ -64,7 +64,8 @@ export async function passwordLogin(email: string, password: string): Promise<Br
   });
   if (r.status === 400 || r.status === 401) throw new BringError("Wrong Bring email or password.");
   if (!r.ok) throw new BringError(`Bring login failed (HTTP ${r.status}).`);
-  const a = await r.json();
+  // deno-lint-ignore no-explicit-any
+  const a: any = await r.json();
   return {
     accessToken: a.access_token,
     tokenType: a.token_type ?? "Bearer",
@@ -88,7 +89,8 @@ export async function refreshLogin(
   });
   if (r.status === 400 || r.status === 401) throw new BringError("SIGNIN_EXPIRED");
   if (!r.ok) throw new BringError(`Bring sign-in failed (HTTP ${r.status}).`);
-  const a = await r.json();
+  // deno-lint-ignore no-explicit-any
+  const a: any = await r.json();
   return {
     accessToken: a.access_token,
     tokenType: a.token_type ?? "Bearer",

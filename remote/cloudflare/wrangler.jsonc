@@ -1,0 +1,15 @@
+{
+  // Deploy with: npx wrangler deploy  (see remote/cloudflare/README.md)
+  "name": "bring-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "kv_namespaces": [
+    // Created by setup.sh; it writes the real id here.
+    { "binding": "OAUTH_KV", "id": "REPLACE_WITH_KV_ID" }
+  ],
+  "observability": { "enabled": true }
+  // Secrets (set with `npx wrangler secret put NAME`): BRING_EMAIL, BRING_PASSWORD,
+  // and optionally BRING_LIST (list used when none is named).
+}
